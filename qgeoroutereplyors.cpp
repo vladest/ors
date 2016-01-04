@@ -57,11 +57,16 @@ static QGeoRectangle parseBounds(QXmlStreamReader *xml) {
     return bounds;
 }
 
-static QList<QGeoCoordinate> parsePolyline(const QXmlStreamReader &xml)
+static QList<QGeoCoordinate> parsePolyline(QXmlStreamReader *xml)
 {
     QList<QGeoCoordinate> path;
-
-    QGeoCoordinate coord(0, 0);
+    while (!(xml->isEndElement() && xml->name() == "RouteGeometry")) {
+        if (xml->isStartElement() && xml->name() == "pos") {
+            xml->readNext();
+            path.append(parsePos(xml->text()));
+        }
+        xml->readNext();
+    }
 
     return path;
 }
@@ -249,7 +254,7 @@ static QGeoRoute constructRoute(QXmlStreamReader *xml)
 {
     QGeoRoute route;
 
-//    QList<QGeoCoordinate> path;// = parsePolyline(geometry);
+    QList<QGeoCoordinate> path;
 //    QGeoRouteSegment firstSegment;
 //    int firstPosition = -1;
 //    int segmentPathLengthCount = 0;
@@ -269,6 +274,9 @@ static QGeoRoute constructRoute(QXmlStreamReader *xml)
         if (xml->isStartElement() && xml->name() == "BoundingBox") {
             QGeoRectangle bounds = parseBounds(xml);
             route.setBounds(bounds);
+        }
+        if (xml->isStartElement() && xml->name() == "RouteGeometry") {
+            path = parsePolyline(xml);
         }
     }
 
@@ -317,11 +325,10 @@ static QGeoRoute constructRoute(QXmlStreamReader *xml)
         firstPosition = position;
     }
 
-    route.setDistance(summary.value(QStringLiteral("total_distance")).toDouble());
-    route.setTravelTime(summary.value(QStringLiteral("total_time")).toDouble());
     route.setFirstRouteSegment(firstSegment);
-    route.setPath(path);
+
 */
+    route.setPath(path);
     return route;
 }
 
