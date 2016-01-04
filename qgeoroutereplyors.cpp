@@ -5,12 +5,8 @@
 #include <QtLocation/QGeoManeuver>
 #include <QtCore/QXmlStreamReader>
 
-QT_BEGIN_NAMESPACE
-
 static int parseTime(const QStringRef& stime) {
-    //
     int sec_ = 0;
-    //qDebug() << stime.toString();
 
     if (stime.startsWith("PT")) {
         int start_  = 2;
@@ -53,14 +49,13 @@ static QGeoRectangle parseBounds(QXmlStreamReader *xml) {
     }
 
     QGeoRectangle bounds = QGeoRectangle(coordinates);
-    qDebug()  << "bounding box" << bounds.topLeft() << bounds.bottomRight();
     return bounds;
 }
 
-static QList<QGeoCoordinate> parsePolyline(QXmlStreamReader *xml)
+static QList<QGeoCoordinate> parsePolyline(QXmlStreamReader *xml, const QString &element)
 {
     QList<QGeoCoordinate> path;
-    while (!(xml->isEndElement() && xml->name() == "RouteGeometry")) {
+    while (!(xml->isEndElement() && xml->name() == element)) {
         if (xml->isStartElement() && xml->name() == "pos") {
             xml->readNext();
             path.append(parsePos(xml->text()));
@@ -71,157 +66,80 @@ static QList<QGeoCoordinate> parsePolyline(QXmlStreamReader *xml)
     return path;
 }
 
-static QGeoManeuver::InstructionDirection osrmInstructionDirection(const QString &instructionCode)
+static QGeoManeuver::InstructionDirection osrmInstructionDirection(int instructionCode)
 {
-    if (instructionCode == QLatin1String("0"))
-        return QGeoManeuver::NoDirection;
-    else if (instructionCode == QLatin1String("1"))
+    if (instructionCode == 0)
         return QGeoManeuver::DirectionForward;
-    else if (instructionCode == QLatin1String("2"))
+    else if (instructionCode == 1)
         return QGeoManeuver::DirectionBearRight;
-    else if (instructionCode == QLatin1String("3"))
+    else if (instructionCode == 2)
         return QGeoManeuver::DirectionRight;
-    else if (instructionCode == QLatin1String("4"))
+    else if (instructionCode == 3)
         return QGeoManeuver::DirectionHardRight;
-    else if (instructionCode == QLatin1String("5"))
-        return QGeoManeuver::DirectionUTurnLeft;
-    else if (instructionCode == QLatin1String("6"))
+    else if (instructionCode == -3)
         return QGeoManeuver::DirectionHardLeft;
-    else if (instructionCode == QLatin1String("7"))
+    else if (instructionCode == -2)
         return QGeoManeuver::DirectionLeft;
-    else if (instructionCode == QLatin1String("8"))
+    else if (instructionCode == -1)
         return QGeoManeuver::DirectionBearLeft;
-    else if (instructionCode == QLatin1String("9"))
-        return QGeoManeuver::NoDirection;
-    else if (instructionCode == QLatin1String("10"))
-        return QGeoManeuver::DirectionForward;
-    else if (instructionCode == QLatin1String("11"))
-        return QGeoManeuver::NoDirection;
-    else if (instructionCode == QLatin1String("12"))
-        return QGeoManeuver::NoDirection;
-    else if (instructionCode == QLatin1String("13"))
-        return QGeoManeuver::NoDirection;
-    else if (instructionCode == QLatin1String("14"))
-        return QGeoManeuver::NoDirection;
-    else if (instructionCode == QLatin1String("15"))
-        return QGeoManeuver::NoDirection;
     else
         return QGeoManeuver::NoDirection;
 }
 
-const QString osrmInstructionText(const QString &instructionCode, const QString &wayname)
+static QGeoRouteSegment parseInstructions(QXmlStreamReader *xml)
 {
-    if (instructionCode == QLatin1String("0")) {
-        return QString();
-    } else if (instructionCode == QLatin1String("1")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("Go straight.");
-        else
-            return QGeoRouteReplyOrs::tr("Go straight onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("2")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("Turn slightly right.");
-        else
-            return QGeoRouteReplyOrs::tr("Turn slightly right onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("3")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("Turn right.");
-        else
-            return QGeoRouteReplyOrs::tr("Turn right onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("4")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("Make a sharp right.");
-        else
-            return QGeoRouteReplyOrs::tr("Make a sharp right onto %1.").arg(wayname);
+    QGeoRouteSegment firstSegment;
+    QGeoRouteSegment prevSegment;
+    while (!(xml->isEndElement() && xml->name() == "RouteInstructionsList")) {
+        if (xml->isStartElement() && xml->name() == "RouteInstruction") {
+            qreal segmentTime = parseTime(xml->attributes().value("duration"));
+            QString description = xml->attributes().value("description").toString();
+
+            QGeoRouteSegment segment;
+            QGeoManeuver maneuver;
+            int directionCode = -1;
+            QString instructionText;
+            qreal distance = 0;
+            QList<QGeoCoordinate> path;
+            while (!(xml->isEndElement() && xml->name() == "RouteInstruction")) {
+                if (xml->isStartElement() && xml->name() == "DirectionCode") {
+                    xml->readNext();
+                    directionCode = xml->text().toInt();
+                }
+                if (xml->isStartElement() && xml->name() == "Instruction") {
+                    xml->readNext();
+                    instructionText = xml->text().toString();
+                }
+                if (xml->isStartElement() && xml->name() == "Distance") {
+                    distance = xml->attributes().value("value").toFloat();
+                }
+                if (xml->isStartElement() && xml->name() == "RouteInstructionGeometry") {
+                    path = parsePolyline(xml, "RouteInstructionGeometry");
+                }
+                xml->readNext();
+            }
+            segment.setDistance(distance);
+
+            maneuver.setDirection(osrmInstructionDirection(directionCode));
+            maneuver.setDistanceToNextInstruction(distance);
+            maneuver.setInstructionText(instructionText);
+            maneuver.setPosition(path.at(0));
+            maneuver.setTimeToNextInstruction(segmentTime);
+
+            segment.setManeuver(maneuver);
+            segment.setPath(path);
+            segment.setTravelTime(segmentTime);
+
+            if (!firstSegment.isValid()) {
+                firstSegment = segment;
+            }
+            if (prevSegment.isValid())
+                prevSegment.setNextRouteSegment(segment);
+            prevSegment = segment;
+        }
+        xml->readNext();
     }
-    else if (instructionCode == QLatin1String("5")) {
-        return QGeoRouteReplyOrs::tr("When it is safe to do so, perform a U-turn.");
-    } else if (instructionCode == QLatin1String("6")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("Make a sharp left.");
-        else
-            return QGeoRouteReplyOrs::tr("Make a sharp left onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("7")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("Turn left.");
-        else
-            return QGeoRouteReplyOrs::tr("Turn left onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("8")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("Turn slightly left.");
-        else
-            return QGeoRouteReplyOrs::tr("Turn slightly left onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("9")) {
-        return QGeoRouteReplyOrs::tr("Reached waypoint.");
-    } else if (instructionCode == QLatin1String("10")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("Head on.");
-        else
-            return QGeoRouteReplyOrs::tr("Head onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("11")) {
-        return QGeoRouteReplyOrs::tr("Enter the roundabout.");
-    } else if (instructionCode == QLatin1String("11-1")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("At the roundabout take the first exit.");
-        else
-            return QGeoRouteReplyOrs::tr("At the roundabout take the first exit onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("11-2")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("At the roundabout take the second exit.");
-        else
-            return QGeoRouteReplyOrs::tr("At the roundabout take the second exit onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("11-3")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("At the roundabout take the third exit.");
-        else
-            return QGeoRouteReplyOrs::tr("At the roundabout take the third exit onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("11-4")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("At the roundabout take the fourth exit.");
-        else
-            return QGeoRouteReplyOrs::tr("At the roundabout take the fourth exit onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("11-5")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("At the roundabout take the fifth exit.");
-        else
-            return QGeoRouteReplyOrs::tr("At the roundabout take the fifth exit onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("11-6")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("At the roundabout take the sixth exit.");
-        else
-            return QGeoRouteReplyOrs::tr("At the roundabout take the sixth exit onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("11-7")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("At the roundabout take the seventh exit.");
-        else
-            return QGeoRouteReplyOrs::tr("At the roundabout take the seventh exit onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("11-8")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("At the roundabout take the eighth exit.");
-        else
-            return QGeoRouteReplyOrs::tr("At the roundabout take the eighth exit onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("11-9")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("At the roundabout take the ninth exit.");
-        else
-            return QGeoRouteReplyOrs::tr("At the roundabout take the ninth exit onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("12")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("Leave the roundabout.");
-        else
-            return QGeoRouteReplyOrs::tr("Leave the roundabout onto %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("13")) {
-        return QGeoRouteReplyOrs::tr("Stay on the roundabout.");
-    } else if (instructionCode == QLatin1String("14")) {
-        if (wayname.isEmpty())
-            return QGeoRouteReplyOrs::tr("Start at the end of the street.");
-        else
-            return QGeoRouteReplyOrs::tr("Start at the end of %1.").arg(wayname);
-    } else if (instructionCode == QLatin1String("15")) {
-        return QGeoRouteReplyOrs::tr("You have reached your destination.");
-    } else {
-        return QGeoRouteReplyOrs::tr("Don't know what to say for '%1'").arg(instructionCode);
-    }
+    return firstSegment;
 }
 
 QGeoRouteReplyOrs::QGeoRouteReplyOrs(QNetworkReply *reply, const QGeoRouteRequest &request,
@@ -255,79 +173,34 @@ static QGeoRoute constructRoute(QXmlStreamReader *xml)
     QGeoRoute route;
 
     QList<QGeoCoordinate> path;
-//    QGeoRouteSegment firstSegment;
-//    int firstPosition = -1;
-//    int segmentPathLengthCount = 0;
+    QGeoRouteSegment firstSegment;
+    QString instrictionsLang;
+
     while (!xml->atEnd()) {
         xml->readNext();
         if (xml->isStartElement() && xml->name() == "TotalTime") {
             xml->readNext();
             int totalTime = parseTime(xml->text());
             route.setTravelTime(totalTime);
-            qDebug() << "total time" << totalTime;
         }
         if (xml->isStartElement() && xml->name() == "TotalDistance") {
             qreal totalDist = xml->attributes().value("value").toFloat();
             route.setDistance(totalDist);
-            qDebug() << "total distance" << totalDist;
         }
         if (xml->isStartElement() && xml->name() == "BoundingBox") {
             QGeoRectangle bounds = parseBounds(xml);
             route.setBounds(bounds);
         }
         if (xml->isStartElement() && xml->name() == "RouteGeometry") {
-            path = parsePolyline(xml);
+            path = parsePolyline(xml, "RouteGeometry");
         }
-    }
-
-/*
-    for (int i = instructions.count() - 1; i >= 0; --i) {
-        QJsonArray instruction = instructions.at(i).toArray();
-
-        if (instruction.count() < 8) {
-            qWarning("Instruction does not contain enough fields.");
-            continue;
+        if (xml->isStartElement() && xml->name() == "RouteInstructionsList") {
+            instrictionsLang = xml->attributes().value("lang").toString();
+            firstSegment = parseInstructions(xml);
         }
-
-        const QString instructionCode = instruction.at(0).toString();
-        const QString wayname = instruction.at(1).toString();
-        double segmentLength = instruction.at(2).toDouble();
-        int position = instruction.at(3).toDouble();
-        int time = instruction.at(4).toDouble();
-        //const QString segmentLengthString = instruction.at(5).toString();
-        //const QString direction = instruction.at(6).toString();
-        //double azimuth = instruction.at(7).toDouble();
-
-        QGeoRouteSegment segment;
-        segment.setDistance(segmentLength);
-
-        QGeoManeuver maneuver;
-        maneuver.setDirection(osrmInstructionDirection(instructionCode));
-        maneuver.setDistanceToNextInstruction(segmentLength);
-        maneuver.setInstructionText(osrmInstructionText(instructionCode, wayname));
-        maneuver.setPosition(path.at(position));
-        maneuver.setTimeToNextInstruction(time);
-
-        segment.setManeuver(maneuver);
-
-        if (firstPosition == -1)
-            segment.setPath(path.mid(position));
-        else
-            segment.setPath(path.mid(position, firstPosition - position));
-
-        segmentPathLengthCount += segment.path().length();
-
-        segment.setTravelTime(time);
-
-        segment.setNextRouteSegment(firstSegment);
-
-        firstSegment = segment;
-        firstPosition = position;
     }
 
     route.setFirstRouteSegment(firstSegment);
-
-*/
     route.setPath(path);
     return route;
 }
@@ -346,7 +219,6 @@ void QGeoRouteReplyOrs::networkReplyFinished()
     QList<QGeoRoute> routes;
     QXmlStreamReader xml;
     QByteArray data = m_reply->readAll();
-    //qDebug() << "data:" << data;
     xml.addData(data);
 
     int routesNum = 0;
@@ -355,7 +227,6 @@ void QGeoRouteReplyOrs::networkReplyFinished()
 
         if (xml.isStartElement() && xml.name() == "Response") {
             routesNum = xml.attributes().value("numberOfResponses").toInt();
-            qDebug() << "routes" << routesNum;
             if (routesNum > 0) {
                 QGeoRoute route = constructRoute(&xml);
                 routes.append(route);
@@ -363,7 +234,7 @@ void QGeoRouteReplyOrs::networkReplyFinished()
         }
     }
     if (xml.hasError()) {
-        setError(QGeoRouteReply::ParseError, QStringLiteral("Couldn't parse xml."));
+        setError(QGeoRouteReply::ParseError, QStringLiteral("Error parsing OpenRouteService xml response:") + xml.errorString() + " at line: " + xml.lineNumber());
     } else {
         setRoutes(routes);
         setFinished(true);
@@ -385,5 +256,3 @@ void QGeoRouteReplyOrs::networkReplyError(QNetworkReply::NetworkError error)
     m_reply->deleteLater();
     m_reply = 0;
 }
-
-QT_END_NAMESPACE
