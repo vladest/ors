@@ -218,8 +218,7 @@ void QGeoRouteReplyOrs::networkReplyFinished()
     }
     QList<QGeoRoute> routes;
     QXmlStreamReader xml;
-    QByteArray data = m_reply->readAll();
-    xml.addData(data);
+    xml.addData(m_reply->readAll());
 
     int routesNum = 0;
     while (!xml.atEnd()) {

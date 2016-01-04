@@ -4,8 +4,6 @@
 #include <QtNetwork/QNetworkReply>
 #include <QtLocation/QGeoCodeReply>
 
-QT_BEGIN_NAMESPACE
-
 class QGeoCodeReplyOrs : public QGeoCodeReply
 {
     Q_OBJECT
@@ -23,7 +21,5 @@ private Q_SLOTS:
 private:
     QNetworkReply *m_reply;
 };
-
-QT_END_NAMESPACE
 
 #endif // QGEOCODEREPLYORS_H

@@ -146,7 +146,6 @@ QGeoRouteReply* QGeoRoutingManagerEngineOrs::calculateRoute(const QGeoRouteReque
         query.addQueryItem(QStringLiteral("instructions"), QStringLiteral("true"));
 
     url.setQuery(query);
-    qDebug() << "ors request:" << url;
     networkRequest.setUrl(url);
 
     QNetworkReply *reply = m_networkManager->get(networkRequest);

@@ -1,47 +1,10 @@
-/****************************************************************************
-**
-** Copyright (C) 2013 Aaron McCarthy <mccarthy.aaron@gmail.com>
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the QtLocation module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
-
 #include "qgeocodereplyors.h"
 
-#include <QtCore/QJsonDocument>
-#include <QtCore/QJsonObject>
-#include <QtCore/QJsonArray>
+#include <QXmlStreamReader>
 #include <QtPositioning/QGeoCoordinate>
 #include <QtPositioning/QGeoAddress>
 #include <QtPositioning/QGeoLocation>
 #include <QtPositioning/QGeoRectangle>
-
-QT_BEGIN_NAMESPACE
 
 QGeoCodeReplyOrs::QGeoCodeReplyOrs(QNetworkReply *reply, QObject *parent)
 :   QGeoCodeReply(parent), m_reply(reply)
@@ -71,6 +34,98 @@ void QGeoCodeReplyOrs::abort()
     m_reply = 0;
 }
 
+static QGeoCoordinate parsePoint(QXmlStreamReader *xml) {
+    QGeoCoordinate coord(0, 0);
+    do {
+        if (xml->isStartElement() && xml->name() == "pos") {
+            xml->readNext();
+            QVector<QStringRef> vec_coord = xml->text().split(" ");
+            if (vec_coord.size() == 2) {
+                coord.setLongitude(vec_coord.at(0).toDouble());
+                coord.setLatitude(vec_coord.at(1).toDouble());
+            }
+        }
+        xml->readNext();
+    } while (!(xml->isEndElement() && xml->name() == "pos"));
+    return coord;
+}
+
+static QGeoAddress parseAddress(QXmlStreamReader *xml) {
+    QGeoAddress address;
+    QString countryCode = xml->attributes().value("countryCode").toString();
+    QString street;
+    QString building;
+    address.setCountryCode(countryCode);
+    do {
+        if (xml->isStartElement() && xml->name() == "PostalCode") {
+            xml->readNext();
+            address.setPostalCode(xml->text().toString());
+        }
+        if (xml->isStartElement() && xml->name() == "Street") {
+            street = xml->attributes().value("officialName").toString();
+        }
+        if (xml->isStartElement() && xml->name() == "Building") {
+            building = xml->attributes().value("number").toString();
+        }
+        if (xml->isStartElement() && xml->name() == "Place") {
+            QString attrType = xml->attributes().value("type").toString();
+            xml->readNext();
+            if (attrType == "Country") {
+                address.setCountry(xml->text().toString());
+            }
+            if (attrType == "Municipality") {
+                address.setCity(xml->text().toString());
+            }
+            if (attrType == "MunicipalitySubdivision") {
+                address.setDistrict(xml->text().toString());
+            }
+            if (attrType == "CountrySubdivision") {
+                address.setState(xml->text().toString());
+            }
+            if (attrType == "CountrySecondarySubdivision") {
+                address.setCounty(xml->text().toString());
+            }
+        }
+        xml->readNext();
+    } while (!(xml->isEndElement() && xml->name() == "Address"));
+    if (!building.isEmpty())
+        street += ", " + building;
+    address.setStreet(street);
+    return address;
+}
+
+static QList<QGeoLocation> parseLocations(QXmlStreamReader *xml)
+{
+    QList<QGeoLocation> locations;
+
+    while (!(xml->isEndElement() && xml->name() == "Response")) {
+        if (xml->isStartElement() &&
+                (xml->name() == "GeocodedAddress" ||
+                 xml->name() == "ReverseGeocodedLocation")) {
+            QGeoLocation location;
+            while (!(xml->isEndElement() &&
+                    (xml->name() == "GeocodedAddress" ||
+                     xml->name() == "ReverseGeocodedLocation"))) {
+                if (xml->isStartElement() && xml->name() == "Point") {
+                    QGeoCoordinate point = parsePoint(xml);
+                    location.setCoordinate(point);
+                }
+                if (xml->isStartElement() && xml->name() == "Address") {
+                    QGeoAddress address = parseAddress(xml);
+                    location.setAddress(address);
+                }
+                if (xml->isStartElement() && xml->name() == "SearchCentreDistance") {
+                }
+                xml->readNext();
+            }
+            locations.append(location);
+        }
+        xml->readNext();
+    }
+
+    return locations;
+}
+
 void QGeoCodeReplyOrs::networkReplyFinished()
 {
     if (!m_reply)
@@ -80,85 +135,26 @@ void QGeoCodeReplyOrs::networkReplyFinished()
         return;
 
     QList<QGeoLocation> locations;
-    QJsonDocument document = QJsonDocument::fromJson(m_reply->readAll());
+    QXmlStreamReader xml;
+    QByteArray data = m_reply->readAll();
+    xml.addData(data);
 
-    if (document.isObject()) {
-        QJsonObject object = document.object();
+    while (!xml.atEnd()) {
+        xml.readNext();
 
-        QGeoCoordinate coordinate;
-
-        coordinate.setLatitude(object.value(QStringLiteral("lat")).toString().toDouble());
-        coordinate.setLongitude(object.value(QStringLiteral("lon")).toString().toDouble());
-
-        QJsonObject ao = object.value(QStringLiteral("address")).toObject();
-
-        QGeoAddress address;
-        address.setText(object.value(QStringLiteral("display_name")).toString());
-        address.setCountry(ao.value(QStringLiteral("country")).toString());
-        address.setCountryCode(ao.value(QStringLiteral("country_code")).toString());
-        address.setState(ao.value(QStringLiteral("state")).toString());
-        address.setCity(ao.value(QStringLiteral("city")).toString());
-        address.setDistrict(ao.value(QStringLiteral("suburb")).toString());
-        address.setPostalCode(ao.value(QStringLiteral("postcode")).toString());
-        address.setStreet(ao.value(QStringLiteral("road")).toString());
-
-        QGeoLocation location;
-        location.setCoordinate(coordinate);
-        location.setAddress(address);
-
-        locations.append(location);
-
-        setLocations(locations);
-    } else if (document.isArray()) {
-        QJsonArray results = document.array();
-
-        for (int i = 0; i < results.count(); ++i) {
-            if (!results.at(i).isObject())
-                continue;
-
-            QJsonObject object = results.at(i).toObject();
-
-            QGeoCoordinate coordinate;
-
-            coordinate.setLatitude(object.value(QStringLiteral("lat")).toString().toDouble());
-            coordinate.setLongitude(object.value(QStringLiteral("lon")).toString().toDouble());
-
-            QGeoRectangle rectangle;
-
-            if (object.contains(QStringLiteral("boundingbox"))) {
-                QJsonArray a = object.value(QStringLiteral("boundingbox")).toArray();
-                if (a.count() == 4) {
-                    rectangle.setTopLeft(QGeoCoordinate(a.at(1).toString().toDouble(),
-                                                        a.at(2).toString().toDouble()));
-                    rectangle.setBottomRight(QGeoCoordinate(a.at(0).toString().toDouble(),
-                                                            a.at(3).toString().toDouble()));
-                }
+        if (xml.isStartElement() && xml.name() == "Response") {
+            int responsesNum = xml.attributes().value("numberOfResponses").toInt();
+            if (responsesNum > 0) {
+                locations = parseLocations(&xml);
             }
-
-            QJsonObject ao = object.value(QStringLiteral("address")).toObject();
-
-            QGeoAddress address;
-            address.setText(object.value(QStringLiteral("display_name")).toString());
-            address.setCountry(ao.value(QStringLiteral("country")).toString());
-            address.setCountryCode(ao.value(QStringLiteral("country_code")).toString());
-            address.setState(ao.value(QStringLiteral("state")).toString());
-            address.setCity(ao.value(QStringLiteral("city")).toString());
-            address.setDistrict(ao.value(QStringLiteral("suburb")).toString());
-            address.setPostalCode(ao.value(QStringLiteral("postcode")).toString());
-            address.setStreet(ao.value(QStringLiteral("road")).toString());
-
-            QGeoLocation location;
-            location.setCoordinate(coordinate);
-            location.setBoundingBox(rectangle);
-            location.setAddress(address);
-            locations.append(location);
         }
-
     }
-
-    setLocations(locations);
-    setFinished(true);
-
+    if (xml.hasError()) {
+        setError(QGeoCodeReply::ParseError, QStringLiteral("Error parsing OpenRouteService xml response:") + xml.errorString() + " at line: " + xml.lineNumber());
+    } else {
+        setLocations(locations);
+        setFinished(true);
+    }
     m_reply->deleteLater();
     m_reply = 0;
 }
@@ -175,5 +171,3 @@ void QGeoCodeReplyOrs::networkReplyError(QNetworkReply::NetworkError error)
     m_reply->deleteLater();
     m_reply = 0;
 }
-
-QT_END_NAMESPACE
