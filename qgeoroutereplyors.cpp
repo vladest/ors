@@ -123,7 +123,8 @@ static QGeoRouteSegment parseInstructions(QXmlStreamReader *xml)
             maneuver.setDirection(osrmInstructionDirection(directionCode));
             maneuver.setDistanceToNextInstruction(distance);
             maneuver.setInstructionText(instructionText);
-            maneuver.setPosition(path.at(0));
+            if (path.size() > 0)
+                maneuver.setPosition(path.at(0));
             maneuver.setTimeToNextInstruction(segmentTime);
 
             segment.setManeuver(maneuver);
