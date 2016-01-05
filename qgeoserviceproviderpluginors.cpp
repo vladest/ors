@@ -15,8 +15,3 @@ QGeoRoutingManagerEngine *QGeoServiceProviderFactoryOrs::createRoutingManagerEng
     return new QGeoRoutingManagerEngineOrs(parameters, error, errorString);
 }
 
-QPlaceManagerEngine *QGeoServiceProviderFactoryOrs::createPlaceManagerEngine(
-    const QVariantMap &parameters, QGeoServiceProvider::Error *error, QString *errorString) const
-{
-    return new QPlaceManagerEngineOrs(parameters, error, errorString);
-}

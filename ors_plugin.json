@@ -6,7 +6,6 @@
     "Features": [
         "OnlineGeocodingFeature",
         "ReverseGeocodingFeature",
-        "OnlineRoutingFeature",
-        "OnlinePlacesFeature"
+        "OnlineRoutingFeature"
     ]
 }

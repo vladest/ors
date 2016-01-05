@@ -18,9 +18,6 @@ public:
     QGeoRoutingManagerEngine *createRoutingManagerEngine(const QVariantMap &parameters,
                                                          QGeoServiceProvider::Error *error,
                                                          QString *errorString) const;
-    QPlaceManagerEngine *createPlaceManagerEngine(const QVariantMap &parameters,
-                                                  QGeoServiceProvider::Error *error,
-                                                  QString *errorString) const;
 };
 
 #endif
