@@ -1,1 +1,10 @@
 *.user
+.moc/
+.obj/
+mkspecs/
+lib/
+*.dll
+*.rc
+Makefile*
+object_script.qtgeoservices_ors.Release
+object_script.qtgeoservices_orsd.Debug
